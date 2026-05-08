@@ -531,6 +531,19 @@ input[type="range"] { accent-color: var(--accent); }
   flex: 0 0 auto;
 }
 
+.track-instrument-select {
+  flex: 0 0 auto;
+  max-width: 140px;
+  background: var(--panel);
+  color: var(--text);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 3px 6px;
+  font-size: 11px;
+}
+
+.track-instrument-select:disabled { opacity: 0.4; cursor: not-allowed; }
+
 .track-color-picker:disabled { opacity: 0.4; cursor: not-allowed; }
 .track-color-picker::-webkit-color-swatch-wrapper { padding: 2px; }
 .track-color-picker::-webkit-color-swatch { border: 0; border-radius: 2px; }

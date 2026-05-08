@@ -10,6 +10,8 @@ export interface Note {
   track: number
 }
 
+import type { InstrumentId } from './audio/synth'
+
 export interface TrackInfo {
   index: number
   name: string
@@ -18,7 +20,10 @@ export interface TrackInfo {
   noteCount: number
   avgPitch: number
   defaultAssignment: Hand
+  defaultInstrument: InstrumentId
 }
+
+export type TrackInstruments = Record<number, InstrumentId>
 
 export interface Song {
   name: string

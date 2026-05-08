@@ -1,12 +1,18 @@
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { parseMidiFile } from './midi/parser'
-import type { HandModes, LoopRegion, Song, TrackAssignments } from './types'
+import type { HandModes, LoopRegion, Song, TrackAssignments, TrackInstruments } from './types'
 import { LoadScene } from './scenes/LoadScene'
 import { SetupScene } from './scenes/SetupScene'
 import { PlayScene } from './scenes/PlayScene'
 import { usePlayback } from './hooks/usePlayback'
 import { useMidiInput } from './hooks/useMidiInput'
+import { useAudioOutput } from './hooks/useAudioOutput'
 import { defaultTrackColor } from './utils/notes'
+import {
+  DEFAULT_INSTRUMENT,
+  ensureInstrument,
+  type InstrumentId,
+} from './audio/synth'
 
 type Scene = 'load' | 'setup' | 'play'
 
@@ -33,67 +39,118 @@ function defaultColorsFromSong(song: Song): Record<number, string> {
   return result
 }
 
+function defaultInstrumentsFromSong(song: Song): TrackInstruments {
+  const result: TrackInstruments = {}
+  for (const t of song.tracks) {
+    if (t.noteCount === 0) continue
+    result[t.index] = t.defaultInstrument
+  }
+  return result
+}
+
+function shiftSong(song: Song, leadInSec: number): Song {
+  if (leadInSec <= 0) return song
+  return {
+    ...song,
+    notes: song.notes.map((n) => ({ ...n, time: n.time + leadInSec })),
+    duration: song.duration + leadInSec,
+  }
+}
+
 export function App() {
   const [scene, setScene] = useState<Scene>('load')
-  const [song, setSong] = useState<Song | null>(null)
+  const [baseSong, setBaseSong] = useState<Song | null>(null)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [lookahead, setLookahead] = useState(4)
+  const [leadInSec, setLeadInSec] = useState(2)
 
   const [handModes, setHandModes] = useState<HandModes>({ left: 'listen', right: 'listen' })
   const [waitForKeys, setWaitForKeys] = useState(false)
   const [trackAssignments, setTrackAssignments] = useState<TrackAssignments>({})
   const [trackColors, setTrackColors] = useState<Record<number, string>>({})
+  const [trackInstruments, setTrackInstruments] = useState<TrackInstruments>({})
   const [loop, setLoop] = useState<LoopRegion>(EMPTY_LOOP)
+
+  const [liveInstrument, setLiveInstrument] = useState<InstrumentId>(DEFAULT_INSTRUMENT)
+
+  const song = useMemo(
+    () => (baseSong ? shiftSong(baseSong, leadInSec) : null),
+    [baseSong, leadInSec],
+  )
+
+  const handleLiveInstrumentChange = useCallback((id: InstrumentId) => {
+    setLiveInstrument(id)
+    ensureInstrument(id).catch(() => {
+      /* ignore — note will silently no-op until loaded */
+    })
+  }, [])
+
+  const handleTrackInstrumentChange = useCallback((trackIdx: number, id: InstrumentId) => {
+    setTrackInstruments((prev) => ({ ...prev, [trackIdx]: id }))
+    ensureInstrument(id).catch(() => {})
+  }, [])
+
+  const audioOutput = useAudioOutput()
 
   const handModesRef = useRef<HandModes>(handModes)
   const waitForKeysRef = useRef(waitForKeys)
   const trackAssignmentsRef = useRef<TrackAssignments>(trackAssignments)
   const trackColorsRef = useRef<Record<number, string>>(trackColors)
+  const trackInstrumentsRef = useRef<TrackInstruments>(trackInstruments)
   const loopRef = useRef<LoopRegion>(loop)
-  useEffect(() => {
-    handModesRef.current = handModes
-  }, [handModes])
-  useEffect(() => {
-    waitForKeysRef.current = waitForKeys
-  }, [waitForKeys])
-  useEffect(() => {
-    trackAssignmentsRef.current = trackAssignments
-  }, [trackAssignments])
-  useEffect(() => {
-    trackColorsRef.current = trackColors
-  }, [trackColors])
-  useEffect(() => {
-    loopRef.current = loop
-  }, [loop])
+  const liveInstrumentRef = useRef<InstrumentId>(liveInstrument)
 
-  const midi = useMidiInput()
+  useEffect(() => { handModesRef.current = handModes }, [handModes])
+  useEffect(() => { waitForKeysRef.current = waitForKeys }, [waitForKeys])
+  useEffect(() => { trackAssignmentsRef.current = trackAssignments }, [trackAssignments])
+  useEffect(() => { trackColorsRef.current = trackColors }, [trackColors])
+  useEffect(() => { trackInstrumentsRef.current = trackInstruments }, [trackInstruments])
+  useEffect(() => { loopRef.current = loop }, [loop])
+  useEffect(() => { liveInstrumentRef.current = liveInstrument }, [liveInstrument])
+
+  const midi = useMidiInput({ liveInstrumentRef })
   const playback = usePlayback(song, {
     handModesRef,
     waitForKeysRef,
     liveNotesRef: midi.liveNotesRef,
     trackAssignmentsRef,
+    trackInstrumentsRef,
     loopRef,
   })
 
-  const handleLoadFile = useCallback(async (file: File) => {
-    try {
-      setLoadError(null)
-      const parsed = await parseMidiFile(file)
-      setSong(parsed)
-      setTrackAssignments(defaultsFromSong(parsed))
-      setTrackColors(defaultColorsFromSong(parsed))
-      setLoop({ enabled: false, start: 0, end: parsed.duration })
-      setScene('setup')
-    } catch (err) {
-      setLoadError(err instanceof Error ? err.message : String(err))
-    }
-  }, [])
+  const handleLoadFile = useCallback(
+    async (file: File) => {
+      try {
+        setLoadError(null)
+        const parsed = await parseMidiFile(file)
+        setBaseSong(parsed)
+        setTrackAssignments(defaultsFromSong(parsed))
+        setTrackColors(defaultColorsFromSong(parsed))
+        const instruments = defaultInstrumentsFromSong(parsed)
+        setTrackInstruments(instruments)
+        setLoop({ enabled: false, start: 0, end: parsed.duration + leadInSec })
+        // Preload all distinct instruments used in this song + the live one
+        const distinct = new Set<InstrumentId>(Object.values(instruments))
+        distinct.add(liveInstrumentRef.current)
+        for (const id of distinct) ensureInstrument(id).catch(() => {})
+        setScene('setup')
+      } catch (err) {
+        setLoadError(err instanceof Error ? err.message : String(err))
+      }
+    },
+    [leadInSec],
+  )
 
   const handleResetTrackDefaults = useCallback(() => {
-    if (!song) return
-    setTrackAssignments(defaultsFromSong(song))
-    setTrackColors(defaultColorsFromSong(song))
-  }, [song])
+    if (!baseSong) return
+    setTrackAssignments(defaultsFromSong(baseSong))
+    setTrackColors(defaultColorsFromSong(baseSong))
+    const instruments = defaultInstrumentsFromSong(baseSong)
+    setTrackInstruments(instruments)
+    for (const id of new Set<InstrumentId>(Object.values(instruments))) {
+      ensureInstrument(id).catch(() => {})
+    }
+  }, [baseSong])
 
   const handleTrackColorChange = useCallback((trackIdx: number, color: string) => {
     setTrackColors((prev) => ({ ...prev, [trackIdx]: color }))
@@ -117,11 +174,15 @@ export function App() {
         <h1>my-piano-app</h1>
         <span className="tagline">Falling-notes piano player</span>
         <div className="spacer" />
-        <Breadcrumb scene={scene} hasSong={!!song} onNav={(s) => {
-          if (s === 'load') goLoad()
-          else if (s === 'setup' && song) goSetup()
-          else if (s === 'play' && song) goPlay()
-        }} />
+        <Breadcrumb
+          scene={scene}
+          hasSong={!!baseSong}
+          onNav={(s) => {
+            if (s === 'load') goLoad()
+            else if (s === 'setup' && baseSong) goSetup()
+            else if (s === 'play' && baseSong) goPlay()
+          }}
+        />
       </header>
 
       {scene === 'load' && (
@@ -135,6 +196,8 @@ export function App() {
           onTrackAssignmentsChange={setTrackAssignments}
           trackColors={trackColors}
           onTrackColorChange={handleTrackColorChange}
+          trackInstruments={trackInstruments}
+          onTrackInstrumentChange={handleTrackInstrumentChange}
           onResetTrackDefaults={handleResetTrackDefaults}
           handModes={handModes}
           onHandModesChange={setHandModes}
@@ -144,12 +207,24 @@ export function App() {
           onRateChange={playback.setRate}
           lookahead={lookahead}
           onLookaheadChange={setLookahead}
+          leadInSec={leadInSec}
+          onLeadInChange={setLeadInSec}
           midi={{
             supported: midi.supported,
             devices: midi.devices,
             selectedId: midi.selectedId,
             onSelect: midi.select,
             error: midi.error,
+          }}
+          liveInstrument={liveInstrument}
+          onLiveInstrumentChange={handleLiveInstrumentChange}
+          audioOutput={{
+            supported: audioOutput.supported,
+            devices: audioOutput.devices,
+            selectedId: audioOutput.selectedId,
+            onSelect: audioOutput.select,
+            onRefresh: audioOutput.refresh,
+            error: audioOutput.error,
           }}
           onBack={goLoad}
           onContinue={goPlay}
@@ -190,6 +265,8 @@ export function App() {
             selectedId: midi.selectedId,
             onSelect: midi.select,
           }}
+          liveInstrument={liveInstrument}
+          onLiveInstrumentChange={handleLiveInstrumentChange}
           onBack={goSetup}
         />
       )}

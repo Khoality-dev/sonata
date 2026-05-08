@@ -1,12 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { Hand, HandModes, LoopRegion, Song, TrackAssignments } from '../types'
+import type { Hand, HandModes, LoopRegion, Song, TrackAssignments, TrackInstruments } from '../types'
 import * as audio from '../audio/synth'
+import { DEFAULT_INSTRUMENT } from '../audio/synth'
 
 export interface PlaybackOptions {
   handModesRef: React.MutableRefObject<HandModes>
   waitForKeysRef: React.MutableRefObject<boolean>
   liveNotesRef: React.MutableRefObject<Set<number>>
   trackAssignmentsRef: React.MutableRefObject<TrackAssignments>
+  trackInstrumentsRef: React.MutableRefObject<TrackInstruments>
   loopRef: React.MutableRefObject<LoopRegion>
 }
 
@@ -39,7 +41,7 @@ export function usePlayback(song: Song | null, opts: PlaybackOptions): PlaybackA
   const rafRef = useRef<number | null>(null)
   const lastFrameMs = useRef(0)
   const nextNoteIdx = useRef(0)
-  const pendingOffs = useRef<{ midi: number; offTime: number }[]>([])
+  const pendingOffs = useRef<{ midi: number; offTime: number; instrument: audio.InstrumentId }[]>([])
   const activeRef = useRef<Set<number>>(new Set())
   const uiSyncCounter = useRef(0)
   const waitingRef = useRef(false)
@@ -78,6 +80,7 @@ export function usePlayback(song: Song | null, opts: PlaybackOptions): PlaybackA
       const waitForKeys = opts.waitForKeysRef.current
       const liveNotes = opts.liveNotesRef.current
       const assignments = opts.trackAssignmentsRef.current
+      const trackInstruments = opts.trackInstrumentsRef.current
       const loop = opts.loopRef.current
 
       let t = currentTimeRef.current + dt * rateRef.current
@@ -126,8 +129,13 @@ export function usePlayback(song: Song | null, opts: PlaybackOptions): PlaybackA
         }
 
         // mode === 'listen'
-        audio.noteOn(n.midi, n.velocity)
-        pendingOffs.current.push({ midi: n.midi, offTime: n.time + n.duration })
+        const instrumentId = trackInstruments[n.track] ?? DEFAULT_INSTRUMENT
+        audio.noteOn(n.midi, n.velocity, instrumentId)
+        pendingOffs.current.push({
+          midi: n.midi,
+          offTime: n.time + n.duration,
+          instrument: instrumentId,
+        })
         activeRef.current.add(n.midi)
         nextNoteIdx.current++
         activeChanged = true
@@ -136,10 +144,10 @@ export function usePlayback(song: Song | null, opts: PlaybackOptions): PlaybackA
       currentTimeRef.current = t
 
       if (pendingOffs.current.length) {
-        const remaining: { midi: number; offTime: number }[] = []
+        const remaining: { midi: number; offTime: number; instrument: audio.InstrumentId }[] = []
         for (const off of pendingOffs.current) {
           if (off.offTime <= t) {
-            audio.noteOff(off.midi)
+            audio.noteOff(off.midi, off.instrument)
             activeRef.current.delete(off.midi)
             activeChanged = true
           } else {
@@ -193,7 +201,14 @@ export function usePlayback(song: Song | null, opts: PlaybackOptions): PlaybackA
 
       rafRef.current = requestAnimationFrame(tick)
     },
-    [opts.handModesRef, opts.waitForKeysRef, opts.liveNotesRef, opts.trackAssignmentsRef, opts.loopRef],
+    [
+      opts.handModesRef,
+      opts.waitForKeysRef,
+      opts.liveNotesRef,
+      opts.trackAssignmentsRef,
+      opts.trackInstrumentsRef,
+      opts.loopRef,
+    ],
   )
 
   const play = useCallback(async () => {

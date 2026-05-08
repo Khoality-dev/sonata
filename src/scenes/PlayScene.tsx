@@ -1,13 +1,16 @@
 import type { HandModes, LoopRegion, Song, TrackAssignments } from '../types'
 import type { MidiDevice } from '../midi/input'
+import type { InstrumentId } from '../audio/synth'
 import { Transport } from '../components/Transport'
 import { LoopControls } from '../components/LoopControls'
 import { SpeedControl } from '../components/SpeedControl'
 import { LookaheadControl } from '../components/LookaheadControl'
 import { MidiDeviceSelect } from '../components/MidiDeviceSelect'
+import { InstrumentSelect } from '../components/InstrumentSelect'
 import { HandModesCompact } from '../components/HandModesCompact'
 import { FallingNotes } from '../components/FallingNotes'
 import { Piano } from '../components/Piano'
+import { useAnyInstrumentLoading } from '../hooks/useInstrumentStatus'
 
 const PIANO_HEIGHT = 140
 
@@ -53,10 +56,14 @@ interface PlaySceneProps {
     onSelect: (id: string | null) => void
   }
 
+  liveInstrument: InstrumentId
+  onLiveInstrumentChange: (id: InstrumentId) => void
+
   onBack: () => void
 }
 
 export function PlayScene(props: PlaySceneProps) {
+  const anyLoading = useAnyInstrumentLoading()
   return (
     <div className="scene play-scene">
       <div className="play-toolbar">
@@ -94,6 +101,13 @@ export function PlayScene(props: PlaySceneProps) {
             waitingForNote={props.waitingForNote}
           />
           <div className="divider" />
+          <InstrumentSelect
+            value={props.liveInstrument}
+            loading={anyLoading}
+            onChange={props.onLiveInstrumentChange}
+            compact
+            label="Live"
+          />
           <SpeedControl rate={props.rate} onChange={props.onRateChange} compact />
           <LookaheadControl value={props.lookahead} onChange={props.onLookaheadChange} compact />
           <MidiDeviceSelect

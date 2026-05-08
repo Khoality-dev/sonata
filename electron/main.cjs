@@ -30,15 +30,18 @@ function createWindow() {
 
 app.whenReady().then(() => {
   // Auto-grant Web MIDI access (the user is the only consumer of this app)
+  const allowedPermissions = new Set([
+    'midi',
+    'midiSysex',
+    'media',
+    'mediaKeySystem',
+    'audioCapture',
+  ])
   session.defaultSession.setPermissionRequestHandler((_wc, permission, callback) => {
-    if (permission === 'midi' || permission === 'midiSysex') {
-      callback(true)
-    } else {
-      callback(false)
-    }
+    callback(allowedPermissions.has(permission))
   })
   session.defaultSession.setPermissionCheckHandler((_wc, permission) => {
-    return permission === 'midi' || permission === 'midiSysex'
+    return allowedPermissions.has(permission)
   })
 
   if (!isDev) Menu.setApplicationMenu(null)

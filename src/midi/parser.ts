@@ -1,5 +1,6 @@
 import { Midi } from '@tonejs/midi'
 import type { Hand, Note, Song, TrackInfo } from '../types'
+import { DEFAULT_INSTRUMENT, instrumentFromMidiName, type InstrumentId } from '../audio/synth'
 
 const LEFT_HINTS = ['left', 'lh', 'bass', 'l.h', 'l h', 'piano l']
 const RIGHT_HINTS = ['right', 'rh', 'treble', 'melody', 'r.h', 'r h', 'piano r']
@@ -56,18 +57,17 @@ export async function parseMidiFile(file: File): Promise<Song> {
 
   const tracks: TrackInfo[] = midi.tracks.map((t, i) => {
     const pitchAvg = avgPitch(t.notes)
-    const fallbackName =
-      nameHand(t.name) || twoTrackHigher !== null
-        ? t.name || `Track ${i + 1}`
-        : t.name || `Track ${i + 1}`
+    const instrumentName = t.instrument?.name ?? ''
+    const mapped: InstrumentId = instrumentFromMidiName(instrumentName) ?? DEFAULT_INSTRUMENT
     return {
       index: i,
-      name: fallbackName || `Track ${i + 1}`,
-      instrument: t.instrument?.name ?? '',
+      name: t.name || `Track ${i + 1}`,
+      instrument: instrumentName,
       channel: t.channel ?? 0,
       noteCount: t.notes.length,
       avgPitch: pitchAvg,
       defaultAssignment: defaultHandFor(i, t.name, pitchAvg, twoTrackHigher),
+      defaultInstrument: mapped,
     }
   })
 

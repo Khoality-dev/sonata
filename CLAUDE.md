@@ -7,7 +7,8 @@ A falling-notes MIDI piano player, packaged as a desktop app (Electron). Load a 
 - Electron (desktop shell, `electron/main.cjs`)
 - React 18 + TypeScript + Vite (renderer)
 - `@tonejs/midi` for parsing
-- `Tone.js` Sampler with Salamander piano samples (CDN: `https://tonejs.github.io/audio/salamander/`) for audio
+- `soundfont-player` for instruments (MusyngKite GM soundfont, CDN-hosted via gleitz.github.io)
+- `Tone.js` for the FX chain (EQ3 → Reverb → Limiter) and AudioContext management. Output routing uses `AudioContext.setSinkId` (Audio Output Devices API).
 - HTML5 Canvas (RAF-driven) for the falling-notes view
 - Web MIDI API for hardware piano input
 
@@ -45,9 +46,10 @@ src/
   utils/notes.ts           88-key geometry, MIDI<->name, hand colors
   midi/parser.ts           File -> Song via @tonejs/midi (with track classification)
   midi/input.ts            Web MIDI manager (devices, note on/off)
-  audio/synth.ts           Tone.Sampler singleton, init/noteOn/noteOff
+  audio/synth.ts           soundfont-player + Tone EQ3/Reverb/Limiter chain, instrument switching, output device selection
   hooks/usePlayback.ts     RAF loop, schedules audio + activeNotes, loop wrap, wait-mode
   hooks/useMidiInput.ts    React wrapper around midi/input + audio passthrough
+  hooks/useAudioOutput.ts  enumerate audio outputs + setSinkId routing
   scenes/LoadScene.tsx     Step 1: file picker
   scenes/SetupScene.tsx    Step 2: tracks, hand modes, performance settings
   scenes/PlayScene.tsx     Step 3: falling-notes view + compact toolbar
@@ -59,6 +61,7 @@ src/
   components/HandModesCompact.tsx  tiny L/P/× toggle row + wait checkbox (Play toolbar)
   components/TracksPanel.tsx    per-track Left/Right/Hide assignment + bulk + reset
   components/SpeedControl.tsx, LookaheadControl.tsx, MidiDeviceSelect.tsx, FileLoader.tsx
+  components/InstrumentSelect.tsx, AudioOutputSelect.tsx
 ```
 
 ### Scene flow
@@ -81,6 +84,19 @@ There are two layers controlling what plays and how:
    - `'practice'` draws outlined falling notes and does NOT play audio for that hand — the user plays it. The user's MIDI input drives audio + the keyboard highlight.
    - `'off'` mutes/hides the whole hand.
 - `waitForKeys`: when on, the playback clock clamps at the start time of the next upcoming practice note until that key is held in `liveNotes`. Chords work because each note clamps in turn until all are held.
+
+### Audio engine
+
+- The signal chain is **soundfont-player(s) → Tone.Gain (shared input) → EQ3 → Reverb → Limiter → destination**. Reverb (decay 2.6s, wet 0.22) gives the dry samples a small concert-room body; the EQ3 adds a touch of warmth (+1 dB low, −1 dB high); the limiter (-1 dBFS) catches peaks when many notes overlap. Multiple soundfont players (one per instrument) all funnel into the same Tone.Gain node so the FX chain is shared.
+- **Multi-instrument**: `synth.ts` keeps a `Map<InstrumentId, SoundfontPlayer>` cache. `ensureInstrument(id)` is idempotent and de-dups concurrent loads via `loadingPromises`. `noteOn(midi, vel, instrumentId)` and `noteOff(midi, instrumentId)` operate per instrument, with active notes keyed `${midi}|${instrument}` so the same MIDI number can sound through different instruments simultaneously.
+- **Per-track instrument**: each `TrackInfo.defaultInstrument` is derived from `@tonejs/midi`'s GM program name (via `instrumentFromMidiName`). `App` keeps a `trackInstruments: Record<trackIdx, InstrumentId>` map exposed via a ref so `usePlayback` reads the current instrument for each note without re-creating the RAF callback. The user can override per-track in the Tracks panel.
+- **Live MIDI input** uses a separate `liveInstrument` (default acoustic grand). `useMidiInput` records the instrument used at noteOn so noteOff stops the same player even if the user changed `liveInstrument` mid-key.
+- `INSTRUMENTS` exposes a curated GM subset grouped by family (Piano / Keys / Mallet / Strings / Organ / Reed / Guitar / Vocal / Pad). Each instrument lazy-loads its samples from `https://gleitz.github.io/midi-js-soundfonts/MusyngKite/<name>-mp3.js` on first use (~300–800 KB each). On song load, all distinct track instruments are preloaded in parallel.
+- `setAudioOutput(deviceId)` calls `AudioContext.setSinkId` (Audio Output Devices API). Electron's permission handler in `electron/main.cjs` allows `'media'` so device labels appear without a prompt; the renderer's `useAudioOutput` hook also calls `getUserMedia({audio: true})` once if labels are blank.
+
+### Lead-in
+
+`leadInSec` (default 2.0s) is applied via `useMemo` in App: notes get shifted forward by leadInSec and `song.duration` grows accordingly. This adds empty space at the start so falling notes have room to enter from the top of the canvas before they hit the keyboard. Configurable in Setup → Performance. Changing it resets playback (because `song` reference changes, which `usePlayback` reacts to).
 
 ### Loop A/B
 

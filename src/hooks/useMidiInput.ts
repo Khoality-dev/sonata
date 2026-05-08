@@ -1,6 +1,11 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { createMidiInput, isMidiSupported, type MidiDevice, type MidiInputManager } from '../midi/input'
 import * as audio from '../audio/synth'
+import { DEFAULT_INSTRUMENT, type InstrumentId } from '../audio/synth'
+
+export interface MidiInputOptions {
+  liveInstrumentRef: React.MutableRefObject<InstrumentId>
+}
 
 export interface MidiInputApi {
   supported: boolean
@@ -12,7 +17,7 @@ export interface MidiInputApi {
   error: string | null
 }
 
-export function useMidiInput(): MidiInputApi {
+export function useMidiInput(opts: MidiInputOptions): MidiInputApi {
   const [supported] = useState(isMidiSupported())
   const [devices, setDevices] = useState<MidiDevice[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
@@ -21,6 +26,9 @@ export function useMidiInput(): MidiInputApi {
 
   const managerRef = useRef<MidiInputManager | null>(null)
   const liveRef = useRef<Set<number>>(new Set())
+  // Track the instrument used at noteOn so noteOff stops the same player even
+  // if the user changed liveInstrument while holding the key.
+  const heldInstrument = useRef<Map<number, InstrumentId>>(new Map())
 
   useEffect(() => {
     if (!supported) {
@@ -42,13 +50,16 @@ export function useMidiInput(): MidiInputApi {
         unsubOn = mgr.onNoteOn((midi, velocity) => {
           liveRef.current.add(midi)
           setLiveNotes(new Set(liveRef.current))
-          // Play the note through the audio engine so the user hears their own playing
-          audio.initAudio().then(() => audio.noteOn(midi, velocity))
+          const inst = opts.liveInstrumentRef.current ?? DEFAULT_INSTRUMENT
+          heldInstrument.current.set(midi, inst)
+          audio.initAudio().then(() => audio.noteOn(midi, velocity, inst))
         })
         unsubOff = mgr.onNoteOff((midi) => {
           liveRef.current.delete(midi)
           setLiveNotes(new Set(liveRef.current))
-          audio.noteOff(midi)
+          const inst = heldInstrument.current.get(midi) ?? opts.liveInstrumentRef.current ?? DEFAULT_INSTRUMENT
+          heldInstrument.current.delete(midi)
+          audio.noteOff(midi, inst)
         })
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
@@ -62,12 +73,13 @@ export function useMidiInput(): MidiInputApi {
       unsubOff?.()
       managerRef.current?.select(null)
     }
-  }, [supported])
+  }, [supported, opts.liveInstrumentRef])
 
   const select = useCallback((id: string | null) => {
     managerRef.current?.select(id)
     setSelectedId(id)
     liveRef.current.clear()
+    heldInstrument.current.clear()
     setLiveNotes(new Set())
   }, [])
 
