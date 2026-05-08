@@ -45,12 +45,17 @@ export function usePlayback(song: Song | null, opts: PlaybackOptions): PlaybackA
   const activeRef = useRef<Set<number>>(new Set())
   const uiSyncCounter = useRef(0)
   const waitingRef = useRef(false)
+  // Tracks midis whose current physical hold has already satisfied a practice
+  // note. The user must release and re-press to satisfy the next instance.
+  // Auto-clears when the key is no longer in liveNotes.
+  const consumedKeys = useRef<Set<number>>(new Set())
 
   const stopAllAudio = useCallback(() => {
     audio.allOff()
     pendingOffs.current = []
     activeRef.current.clear()
     setActiveNotes(new Set())
+    consumedKeys.current.clear()
   }, [])
 
   const resetSchedule = useCallback((t: number) => {
@@ -82,6 +87,12 @@ export function usePlayback(song: Song | null, opts: PlaybackOptions): PlaybackA
       const assignments = opts.trackAssignmentsRef.current
       const trackInstruments = opts.trackInstrumentsRef.current
       const loop = opts.loopRef.current
+
+      // A consumed key auto-clears once the user lifts it, freeing it to
+      // satisfy the next practice note when re-pressed.
+      consumedKeys.current.forEach((k) => {
+        if (!liveNotes.has(k)) consumedKeys.current.delete(k)
+      })
 
       let t = currentTimeRef.current + dt * rateRef.current
 
@@ -119,10 +130,16 @@ export function usePlayback(song: Song | null, opts: PlaybackOptions): PlaybackA
         }
 
         if (mode === 'practice') {
-          if (waitForKeys && !liveNotes.has(n.midi)) {
-            t = n.time
-            waitingThisFrame = true
-            break
+          if (waitForKeys) {
+            const heldFresh = liveNotes.has(n.midi) && !consumedKeys.current.has(n.midi)
+            if (!heldFresh) {
+              // Either the key isn't held, or the current hold was already
+              // used to satisfy an earlier note → require release + re-press.
+              t = n.time
+              waitingThisFrame = true
+              break
+            }
+            consumedKeys.current.add(n.midi)
           }
           nextNoteIdx.current++
           continue
@@ -278,6 +295,7 @@ export function usePlayback(song: Song | null, opts: PlaybackOptions): PlaybackA
     currentTimeRef.current = 0
     setCurrentTime(0)
     nextNoteIdx.current = 0
+    consumedKeys.current.clear()
     if (waitingRef.current) {
       waitingRef.current = false
       setWaitingForNote(false)

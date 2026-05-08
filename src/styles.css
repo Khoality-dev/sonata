@@ -619,17 +619,33 @@ input[type="range"] { accent-color: var(--accent); }
 }
 
 .key-white.active-playback {
-  background: linear-gradient(180deg, #b3e2ff 0%, #6cc5ff 100%);
-  box-shadow: inset 0 -3px 0 rgba(0,0,0,0.18), 0 0 16px rgba(78, 201, 255, 0.4);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--playback-color, #6cc5ff) 55%, white) 0%,
+    var(--playback-color, #6cc5ff) 100%
+  );
+  box-shadow:
+    inset 0 -3px 0 rgba(0, 0, 0, 0.18),
+    0 0 16px color-mix(in srgb, var(--playback-color, #6cc5ff) 60%, transparent);
 }
 
 .key-white.active-live {
-  background: linear-gradient(180deg, #ffe7a8 0%, #ffcb6b 100%);
-  box-shadow: inset 0 -3px 0 rgba(0,0,0,0.18), 0 0 16px rgba(255, 203, 107, 0.5);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--live-color, #ffcb6b) 55%, white) 0%,
+    var(--live-color, #ffcb6b) 100%
+  );
+  box-shadow:
+    inset 0 -3px 0 rgba(0, 0, 0, 0.18),
+    0 0 16px color-mix(in srgb, var(--live-color, #ffcb6b) 60%, transparent);
 }
 
 .key-white.active-playback.active-live {
-  background: linear-gradient(180deg, #c8ffd1 0%, #6cf08c 100%);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--live-color, #ffcb6b) 50%, white) 0%,
+    color-mix(in srgb, var(--live-color, #ffcb6b) 70%, var(--playback-color, #6cc5ff)) 100%
+  );
 }
 
 .key-black {
@@ -641,17 +657,29 @@ input[type="range"] { accent-color: var(--accent); }
 }
 
 .key-black.active-playback {
-  background: linear-gradient(180deg, #3aa0d6 0%, #1a6da0 100%);
-  box-shadow: 0 0 12px rgba(78, 201, 255, 0.6);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--playback-color, #4ec9ff) 70%, black) 0%,
+    color-mix(in srgb, var(--playback-color, #4ec9ff) 40%, black) 100%
+  );
+  box-shadow: 0 0 12px color-mix(in srgb, var(--playback-color, #4ec9ff) 60%, transparent);
 }
 
 .key-black.active-live {
-  background: linear-gradient(180deg, #d6a93a 0%, #a07a1a 100%);
-  box-shadow: 0 0 12px rgba(255, 203, 107, 0.6);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--live-color, #ffcb6b) 70%, black) 0%,
+    color-mix(in srgb, var(--live-color, #ffcb6b) 40%, black) 100%
+  );
+  box-shadow: 0 0 12px color-mix(in srgb, var(--live-color, #ffcb6b) 60%, transparent);
 }
 
 .key-black.active-playback.active-live {
-  background: linear-gradient(180deg, #5fc88a 0%, #2a8a55 100%);
+  background: linear-gradient(
+    180deg,
+    color-mix(in srgb, var(--live-color, #ffcb6b) 60%, var(--playback-color, #4ec9ff)) 0%,
+    color-mix(in srgb, var(--live-color, #ffcb6b) 40%, black) 100%
+  );
 }
 
 .key-label {

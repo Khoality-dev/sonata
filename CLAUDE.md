@@ -83,16 +83,25 @@ There are two layers controlling what plays and how:
    - `'listen'` plays audio + draws solid falling notes.
    - `'practice'` draws outlined falling notes and does NOT play audio for that hand — the user plays it. The user's MIDI input drives audio + the keyboard highlight.
    - `'off'` mutes/hides the whole hand.
-- `waitForKeys`: when on, the playback clock clamps at the start time of the next upcoming practice note until that key is held in `liveNotes`. Chords work because each note clamps in turn until all are held.
+- `waitForKeys`: when on, the playback clock clamps at the start time of the next upcoming practice note until that key is *freshly* held — see consumedKeys below. Chords work because each note clamps in turn until all are held.
+- **consumedKeys**: a Set inside `usePlayback` tracking midis whose current hold has already satisfied a practice note. The wait check requires `liveNotes.has(midi) && !consumedKeys.has(midi)`. When the user releases a key (it leaves `liveNotes`), it's auto-removed from `consumedKeys` on the next tick, so a re-press is once again "fresh". This prevents a single sustained press from satisfying multiple disconnected notes.
 
 ### Audio engine
 
-- The signal chain is **soundfont-player(s) → Tone.Gain (shared input) → EQ3 → Reverb → Limiter → destination**. Reverb (decay 2.6s, wet 0.22) gives the dry samples a small concert-room body; the EQ3 adds a touch of warmth (+1 dB low, −1 dB high); the limiter (-1 dBFS) catches peaks when many notes overlap. Multiple soundfont players (one per instrument) all funnel into the same Tone.Gain node so the FX chain is shared.
+- The signal chain is **instrument backends → Tone.Gain (shared input) → EQ3 → Reverb → Limiter → Master Volume → destination**. Reverb (decay 2.6s, wet 0.22) gives the dry samples a small concert-room body; the EQ3 adds a touch of warmth (+1 dB low, −1 dB high); the limiter (-1 dBFS) catches peaks when many notes overlap; master volume (`Tone.Volume`) is exposed via `setMasterVolumeFraction(0..1)` and mapped through `Tone.gainToDb` for perceptual feel.
+- **First-note delay fix**: Web Audio idles its output thread until the first sound, which makes the very first triggered note arrive ~50–150 ms late. After init, a silent `OscillatorNode` (gain = 0) runs continuously to keep the audio output thread warm, so notes play immediately. Audio is also pre-initialized at file-load time (still a user gesture from the file picker) so by the time the user hits Play, all instruments are loaded and the chain is hot.
+- **Hybrid backend**: `acoustic_grand_piano` uses a **Tone.Sampler** loaded from the **Salamander Grand V3** sample set (Yamaha C5, multi-octave, hosted at `https://tonejs.github.io/audio/salamander/`). It sounds noticeably better than MusyngKite's GM piano and is worth the dedicated path. All other instruments use **soundfont-player** with MusyngKite. `isSalamander(id)` switches `noteOn` / `noteOff` / `ensureInstrument` between backends. Both feed the same Tone.Gain so the FX chain is shared.
 - **Multi-instrument**: `synth.ts` keeps a `Map<InstrumentId, SoundfontPlayer>` cache. `ensureInstrument(id)` is idempotent and de-dups concurrent loads via `loadingPromises`. `noteOn(midi, vel, instrumentId)` and `noteOff(midi, instrumentId)` operate per instrument, with active notes keyed `${midi}|${instrument}` so the same MIDI number can sound through different instruments simultaneously.
 - **Per-track instrument**: each `TrackInfo.defaultInstrument` is derived from `@tonejs/midi`'s GM program name (via `instrumentFromMidiName`). `App` keeps a `trackInstruments: Record<trackIdx, InstrumentId>` map exposed via a ref so `usePlayback` reads the current instrument for each note without re-creating the RAF callback. The user can override per-track in the Tracks panel.
 - **Live MIDI input** uses a separate `liveInstrument` (default acoustic grand). `useMidiInput` records the instrument used at noteOn so noteOff stops the same player even if the user changed `liveInstrument` mid-key.
 - `INSTRUMENTS` exposes a curated GM subset grouped by family (Piano / Keys / Mallet / Strings / Organ / Reed / Guitar / Vocal / Pad). Each instrument lazy-loads its samples from `https://gleitz.github.io/midi-js-soundfonts/MusyngKite/<name>-mp3.js` on first use (~300–800 KB each). On song load, all distinct track instruments are preloaded in parallel.
 - `setAudioOutput(deviceId)` calls `AudioContext.setSinkId` (Audio Output Devices API). Electron's permission handler in `electron/main.cjs` allows `'media'` so device labels appear without a prompt; the renderer's `useAudioOutput` hook also calls `getUserMedia({audio: true})` once if labels are blank.
+
+### Live keypress colors
+
+When the user presses a MIDI key, `useMidiInput` calls `resolveLiveNoteTrackRef.current(midi)` (provided by App) to find the closest upcoming song note with the same MIDI number that's assigned to a hand (within ±1.0s of `currentTime`). The matched track index is stored in `liveNoteTracks` so the App can derive `liveNoteColors: Map<midi, color>` and pass it to `Piano`. Falls back to amber if no match. Same approach is used for `playbackNoteColors` so currently-sounding song notes light up in their track's color too.
+
+CSS uses a per-key custom property (`--live-color` / `--playback-color`) and `color-mix(in srgb, ...)` to lighten/darken the gradient stops, so any user-picked color renders consistently on white and black keys.
 
 ### Lead-in
 

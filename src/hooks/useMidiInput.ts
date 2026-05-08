@@ -5,6 +5,12 @@ import { DEFAULT_INSTRUMENT, type InstrumentId } from '../audio/synth'
 
 export interface MidiInputOptions {
   liveInstrumentRef: React.MutableRefObject<InstrumentId>
+  /**
+   * Called when a live MIDI key is pressed; should return the trackIdx of the
+   * upcoming song note that matches this key (within a small time window),
+   * or null if none. Used to color the keyboard highlight per-track.
+   */
+  resolveLiveNoteTrackRef: React.MutableRefObject<(midi: number) => number | null>
 }
 
 export interface MidiInputApi {
@@ -14,6 +20,7 @@ export interface MidiInputApi {
   select: (id: string | null) => void
   liveNotes: ReadonlySet<number>
   liveNotesRef: React.MutableRefObject<Set<number>>
+  liveNoteTracks: ReadonlyMap<number, number>
   error: string | null
 }
 
@@ -22,12 +29,12 @@ export function useMidiInput(opts: MidiInputOptions): MidiInputApi {
   const [devices, setDevices] = useState<MidiDevice[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [liveNotes, setLiveNotes] = useState<ReadonlySet<number>>(new Set())
+  const [liveNoteTracks, setLiveNoteTracks] = useState<ReadonlyMap<number, number>>(new Map())
   const [error, setError] = useState<string | null>(null)
 
   const managerRef = useRef<MidiInputManager | null>(null)
   const liveRef = useRef<Set<number>>(new Set())
-  // Track the instrument used at noteOn so noteOff stops the same player even
-  // if the user changed liveInstrument while holding the key.
+  const liveTracksRef = useRef<Map<number, number>>(new Map())
   const heldInstrument = useRef<Map<number, InstrumentId>>(new Map())
 
   useEffect(() => {
@@ -50,6 +57,11 @@ export function useMidiInput(opts: MidiInputOptions): MidiInputApi {
         unsubOn = mgr.onNoteOn((midi, velocity) => {
           liveRef.current.add(midi)
           setLiveNotes(new Set(liveRef.current))
+          const trackIdx = opts.resolveLiveNoteTrackRef.current(midi)
+          if (trackIdx != null) {
+            liveTracksRef.current.set(midi, trackIdx)
+            setLiveNoteTracks(new Map(liveTracksRef.current))
+          }
           const inst = opts.liveInstrumentRef.current ?? DEFAULT_INSTRUMENT
           heldInstrument.current.set(midi, inst)
           audio.initAudio().then(() => audio.noteOn(midi, velocity, inst))
@@ -57,6 +69,9 @@ export function useMidiInput(opts: MidiInputOptions): MidiInputApi {
         unsubOff = mgr.onNoteOff((midi) => {
           liveRef.current.delete(midi)
           setLiveNotes(new Set(liveRef.current))
+          if (liveTracksRef.current.delete(midi)) {
+            setLiveNoteTracks(new Map(liveTracksRef.current))
+          }
           const inst = heldInstrument.current.get(midi) ?? opts.liveInstrumentRef.current ?? DEFAULT_INSTRUMENT
           heldInstrument.current.delete(midi)
           audio.noteOff(midi, inst)
@@ -73,15 +88,26 @@ export function useMidiInput(opts: MidiInputOptions): MidiInputApi {
       unsubOff?.()
       managerRef.current?.select(null)
     }
-  }, [supported, opts.liveInstrumentRef])
+  }, [supported, opts.liveInstrumentRef, opts.resolveLiveNoteTrackRef])
 
   const select = useCallback((id: string | null) => {
     managerRef.current?.select(id)
     setSelectedId(id)
     liveRef.current.clear()
     heldInstrument.current.clear()
+    liveTracksRef.current.clear()
     setLiveNotes(new Set())
+    setLiveNoteTracks(new Map())
   }, [])
 
-  return { supported, devices, selectedId, select, liveNotes, liveNotesRef: liveRef, error }
+  return {
+    supported,
+    devices,
+    selectedId,
+    select,
+    liveNotes,
+    liveNotesRef: liveRef,
+    liveNoteTracks,
+    error,
+  }
 }

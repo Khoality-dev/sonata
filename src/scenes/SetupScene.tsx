@@ -9,6 +9,7 @@ import { LeadInControl } from '../components/LeadInControl'
 import { MidiDeviceSelect } from '../components/MidiDeviceSelect'
 import { InstrumentSelect } from '../components/InstrumentSelect'
 import { AudioOutputSelect } from '../components/AudioOutputSelect'
+import { VolumeControl } from '../components/VolumeControl'
 import { useAnyInstrumentLoading } from '../hooks/useInstrumentStatus'
 
 interface SetupSceneProps {
@@ -46,6 +47,9 @@ interface SetupSceneProps {
 
   liveInstrument: InstrumentId
   onLiveInstrumentChange: (id: InstrumentId) => void
+
+  volume: number
+  onVolumeChange: (n: number) => void
 
   audioOutput: {
     supported: boolean
@@ -118,6 +122,7 @@ export function SetupScene(props: SetupSceneProps) {
               onChange={props.onLiveInstrumentChange}
               label="Live (MIDI input)"
             />
+            <VolumeControl value={props.volume} onChange={props.onVolumeChange} />
             <AudioOutputSelect
               supported={props.audioOutput.supported}
               devices={props.audioOutput.devices}

@@ -29,8 +29,8 @@ export function PracticePanel({
 
   return (
     <div className="practice-panel">
-      <HandRow hand="right" mode={handModes.right} onChange={(m) => setHand('right', m)} />
       <HandRow hand="left" mode={handModes.left} onChange={(m) => setHand('left', m)} />
+      <HandRow hand="right" mode={handModes.right} onChange={(m) => setHand('right', m)} />
       <label className="wait-toggle">
         <input
           type="checkbox"

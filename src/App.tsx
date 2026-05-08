@@ -1,16 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { parseMidiFile } from './midi/parser'
-import type { HandModes, LoopRegion, Song, TrackAssignments, TrackInstruments } from './types'
+import type { HandModes, LoopRegion, Note, Song, TrackAssignments, TrackInstruments } from './types'
 import { LoadScene } from './scenes/LoadScene'
 import { SetupScene } from './scenes/SetupScene'
 import { PlayScene } from './scenes/PlayScene'
 import { usePlayback } from './hooks/usePlayback'
 import { useMidiInput } from './hooks/useMidiInput'
 import { useAudioOutput } from './hooks/useAudioOutput'
-import { defaultTrackColor } from './utils/notes'
+import { defaultTrackColor, handColor } from './utils/notes'
 import {
   DEFAULT_INSTRUMENT,
   ensureInstrument,
+  initAudio,
+  setMasterVolumeFraction,
   type InstrumentId,
 } from './audio/synth'
 
@@ -72,6 +74,11 @@ export function App() {
   const [loop, setLoop] = useState<LoopRegion>(EMPTY_LOOP)
 
   const [liveInstrument, setLiveInstrument] = useState<InstrumentId>(DEFAULT_INSTRUMENT)
+  const [volume, setVolume] = useState(80) // 0..100
+
+  useEffect(() => {
+    setMasterVolumeFraction(volume / 100)
+  }, [volume])
 
   const song = useMemo(
     () => (baseSong ? shiftSong(baseSong, leadInSec) : null),
@@ -99,6 +106,8 @@ export function App() {
   const trackInstrumentsRef = useRef<TrackInstruments>(trackInstruments)
   const loopRef = useRef<LoopRegion>(loop)
   const liveInstrumentRef = useRef<InstrumentId>(liveInstrument)
+  const songRef = useRef<Song | null>(null)
+  const getCurrentTimeRef = useRef<() => number>(() => 0)
 
   useEffect(() => { handModesRef.current = handModes }, [handModes])
   useEffect(() => { waitForKeysRef.current = waitForKeys }, [waitForKeys])
@@ -107,8 +116,36 @@ export function App() {
   useEffect(() => { trackInstrumentsRef.current = trackInstruments }, [trackInstruments])
   useEffect(() => { loopRef.current = loop }, [loop])
   useEffect(() => { liveInstrumentRef.current = liveInstrument }, [liveInstrument])
+  useEffect(() => { songRef.current = song }, [song])
 
-  const midi = useMidiInput({ liveInstrumentRef })
+  /**
+   * For a live key press, find the closest upcoming note in the song with the
+   * same MIDI number that's assigned to a hand (not hidden). Returns its
+   * trackIdx so we can color the keyboard highlight per-track.
+   */
+  const resolveLiveNoteTrackRef = useRef<(midi: number) => number | null>((midi) => {
+    const s = songRef.current
+    if (!s) return null
+    const t = getCurrentTimeRef.current()
+    const window = 1.0
+    const assignments = trackAssignmentsRef.current
+    let best: Note | null = null
+    let bestDelta = Infinity
+    for (const n of s.notes) {
+      if (n.midi !== midi) continue
+      const a = assignments[n.track]
+      if (!a || a === 'off') continue
+      const delta = Math.abs(n.time - t)
+      if (delta > window) continue
+      if (delta < bestDelta) {
+        bestDelta = delta
+        best = n
+      }
+    }
+    return best?.track ?? null
+  })
+
+  const midi = useMidiInput({ liveInstrumentRef, resolveLiveNoteTrackRef })
   const playback = usePlayback(song, {
     handModesRef,
     waitForKeysRef,
@@ -117,6 +154,11 @@ export function App() {
     trackInstrumentsRef,
     loopRef,
   })
+
+  // Bind the live-note resolver's time-getter to playback.currentTimeRef.
+  useEffect(() => {
+    getCurrentTimeRef.current = () => playback.currentTimeRef.current
+  }, [playback.currentTimeRef])
 
   const handleLoadFile = useCallback(
     async (file: File) => {
@@ -129,7 +171,10 @@ export function App() {
         const instruments = defaultInstrumentsFromSong(parsed)
         setTrackInstruments(instruments)
         setLoop({ enabled: false, start: 0, end: parsed.duration + leadInSec })
-        // Preload all distinct instruments used in this song + the live one
+        // Pre-init the audio engine NOW (we're inside a user gesture from
+        // clicking the file picker) so the audio thread starts warming up.
+        // Then preload all distinct instruments in parallel.
+        initAudio().catch(() => {})
         const distinct = new Set<InstrumentId>(Object.values(instruments))
         distinct.add(liveInstrumentRef.current)
         for (const id of distinct) ensureInstrument(id).catch(() => {})
@@ -167,6 +212,47 @@ export function App() {
   }, [playback])
 
   const goPlay = useCallback(() => setScene('play'), [])
+
+  /**
+   * For each MIDI number that's currently sounding from playback, find the
+   * track of the (most recent) playing note so we can color the keyboard
+   * highlight per-track.
+   */
+  const playbackNoteColors = useMemo(() => {
+    const result = new Map<number, string>()
+    if (!song) return result
+    const t = playback.currentTime
+    for (const midiNum of playback.activeNotes) {
+      // Find the active note (time <= t < time+duration) with this midi
+      let best: Note | null = null
+      for (const n of song.notes) {
+        if (n.midi !== midiNum) continue
+        if (n.time > t) break
+        if (n.time + n.duration > t) {
+          // Pick the latest-started one if multiple overlap
+          if (!best || n.time > best.time) best = n
+        }
+      }
+      if (best) {
+        const color = trackColors[best.track] ?? handColor('right')
+        result.set(midiNum, color)
+      }
+    }
+    return result
+  }, [song, playback.activeNotes, playback.currentTime, trackColors])
+
+  /**
+   * Color each currently-held live key with the matching track's color.
+   * If no match was found at noteOn time, the key falls back to amber via CSS.
+   */
+  const liveNoteColors = useMemo(() => {
+    const result = new Map<number, string>()
+    for (const [midiNum, trackIdx] of midi.liveNoteTracks) {
+      const color = trackColors[trackIdx]
+      if (color) result.set(midiNum, color)
+    }
+    return result
+  }, [midi.liveNoteTracks, trackColors])
 
   return (
     <div className="app">
@@ -218,6 +304,8 @@ export function App() {
           }}
           liveInstrument={liveInstrument}
           onLiveInstrumentChange={handleLiveInstrumentChange}
+          volume={volume}
+          onVolumeChange={setVolume}
           audioOutput={{
             supported: audioOutput.supported,
             devices: audioOutput.devices,
@@ -267,6 +355,10 @@ export function App() {
           }}
           liveInstrument={liveInstrument}
           onLiveInstrumentChange={handleLiveInstrumentChange}
+          volume={volume}
+          onVolumeChange={setVolume}
+          playbackNoteColors={playbackNoteColors}
+          liveNoteColors={liveNoteColors}
           onBack={goSetup}
         />
       )}

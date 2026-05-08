@@ -30,8 +30,8 @@ export function HandModesCompact({
 }: HandModesCompactProps) {
   return (
     <div className="hand-compact">
-      <CompactRow hand="right" mode={handModes.right} onChange={(m) => onChange({ ...handModes, right: m })} />
       <CompactRow hand="left" mode={handModes.left} onChange={(m) => onChange({ ...handModes, left: m })} />
+      <CompactRow hand="right" mode={handModes.right} onChange={(m) => onChange({ ...handModes, right: m })} />
       <label className="wait-toggle small">
         <input
           type="checkbox"

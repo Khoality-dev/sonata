@@ -7,6 +7,7 @@ import { SpeedControl } from '../components/SpeedControl'
 import { LookaheadControl } from '../components/LookaheadControl'
 import { MidiDeviceSelect } from '../components/MidiDeviceSelect'
 import { InstrumentSelect } from '../components/InstrumentSelect'
+import { VolumeControl } from '../components/VolumeControl'
 import { HandModesCompact } from '../components/HandModesCompact'
 import { FallingNotes } from '../components/FallingNotes'
 import { Piano } from '../components/Piano'
@@ -59,6 +60,12 @@ interface PlaySceneProps {
   liveInstrument: InstrumentId
   onLiveInstrumentChange: (id: InstrumentId) => void
 
+  volume: number
+  onVolumeChange: (n: number) => void
+
+  playbackNoteColors: ReadonlyMap<number, string>
+  liveNoteColors: ReadonlyMap<number, string>
+
   onBack: () => void
 }
 
@@ -108,6 +115,7 @@ export function PlayScene(props: PlaySceneProps) {
             compact
             label="Live"
           />
+          <VolumeControl value={props.volume} onChange={props.onVolumeChange} compact />
           <SpeedControl rate={props.rate} onChange={props.onRateChange} compact />
           <LookaheadControl value={props.lookahead} onChange={props.onLookaheadChange} compact />
           <MidiDeviceSelect
@@ -134,6 +142,8 @@ export function PlayScene(props: PlaySceneProps) {
           height={PIANO_HEIGHT}
           playbackNotes={props.activeNotes}
           liveNotes={props.liveNotes}
+          playbackNoteColors={props.playbackNoteColors}
+          liveNoteColors={props.liveNoteColors}
         />
       </main>
     </div>

@@ -102,11 +102,61 @@ let inputGain: Tone.Gain | null = null
 let reverb: Tone.Reverb | null = null
 let eq: Tone.EQ3 | null = null
 let limiter: Tone.Limiter | null = null
+let masterVolume: Tone.Volume | null = null
 let initPromise: Promise<void> | null = null
 let ready = false
 
 const players = new Map<InstrumentId, SoundfontPlayer>()
 const loadingPromises = new Map<InstrumentId, Promise<SoundfontPlayer>>()
+
+// The acoustic grand piano sounds noticeably better with the Salamander
+// Grand V3 sample set (Yamaha C5, multi-octave) than with the GM soundfont
+// piano. Keep a separate Tone.Sampler backend for it; everything else uses
+// soundfont-player.
+const SALAMANDER_INSTRUMENTS = new Set<InstrumentId>(['acoustic_grand_piano'])
+
+const SALAMANDER_URLS: Record<string, string> = {
+  A0: 'A0.mp3',
+  C1: 'C1.mp3', 'D#1': 'Ds1.mp3', 'F#1': 'Fs1.mp3', A1: 'A1.mp3',
+  C2: 'C2.mp3', 'D#2': 'Ds2.mp3', 'F#2': 'Fs2.mp3', A2: 'A2.mp3',
+  C3: 'C3.mp3', 'D#3': 'Ds3.mp3', 'F#3': 'Fs3.mp3', A3: 'A3.mp3',
+  C4: 'C4.mp3', 'D#4': 'Ds4.mp3', 'F#4': 'Fs4.mp3', A4: 'A4.mp3',
+  C5: 'C5.mp3', 'D#5': 'Ds5.mp3', 'F#5': 'Fs5.mp3', A5: 'A5.mp3',
+  C6: 'C6.mp3', 'D#6': 'Ds6.mp3', 'F#6': 'Fs6.mp3', A6: 'A6.mp3',
+  C7: 'C7.mp3', 'D#7': 'Ds7.mp3', 'F#7': 'Fs7.mp3', A7: 'A7.mp3',
+  C8: 'C8.mp3',
+}
+
+let salamanderSampler: Tone.Sampler | null = null
+let salamanderReady = false
+let salamanderLoadingPromise: Promise<void> | null = null
+
+function isSalamander(id: InstrumentId): boolean {
+  return SALAMANDER_INSTRUMENTS.has(id)
+}
+
+async function ensureSalamander(): Promise<void> {
+  if (salamanderReady) return
+  if (salamanderLoadingPromise) return salamanderLoadingPromise
+  if (!inputGain) throw new Error('Audio not initialized')
+  salamanderSampler = new Tone.Sampler({
+    urls: SALAMANDER_URLS,
+    release: 1.6,
+    attack: 0,
+    baseUrl: 'https://tonejs.github.io/audio/salamander/',
+  }).connect(inputGain)
+  salamanderSampler.volume.value = -3
+  salamanderLoadingPromise = Tone.loaded()
+    .then(() => {
+      salamanderReady = true
+    })
+    .finally(() => {
+      salamanderLoadingPromise = null
+      notifyLoading()
+    })
+  notifyLoading()
+  return salamanderLoadingPromise
+}
 
 // Active notes keyed by `${midi}|${instrument}` so multiple instruments can
 // hold the same MIDI number simultaneously (e.g. piano right + strings left).
@@ -127,15 +177,17 @@ export function isAudioReady(): boolean {
 }
 
 export function isInstrumentLoaded(id: InstrumentId): boolean {
+  if (isSalamander(id)) return salamanderReady
   return players.has(id)
 }
 
 export function isInstrumentLoading(id: InstrumentId): boolean {
+  if (isSalamander(id)) return salamanderLoadingPromise !== null
   return loadingPromises.has(id)
 }
 
 export function isAnyInstrumentLoading(): boolean {
-  return loadingPromises.size > 0
+  return loadingPromises.size > 0 || salamanderLoadingPromise !== null
 }
 
 async function fetchPlayer(id: InstrumentId): Promise<SoundfontPlayer> {
@@ -151,18 +203,57 @@ export async function initAudio(): Promise<void> {
   if (initPromise) return initPromise
   initPromise = (async () => {
     await Tone.start()
-    limiter = new Tone.Limiter(-1).toDestination()
+    masterVolume = new Tone.Volume(0).toDestination()
+    limiter = new Tone.Limiter(-1).connect(masterVolume)
     reverb = new Tone.Reverb({ decay: 2.6, wet: 0.22, preDelay: 0.02 }).connect(limiter)
     eq = new Tone.EQ3({ low: 1, mid: 0, high: -1 }).connect(reverb)
     inputGain = new Tone.Gain(0.9).connect(eq)
     await reverb.ready
+    keepAudioThreadAlive()
     ready = true
   })()
   return initPromise
 }
 
+let keepAliveStarted = false
+/**
+ * Web Audio idles its output thread until first sound, which makes the very
+ * first triggered note arrive ~50–150 ms later than expected. A silent
+ * constant source keeps the output thread warm so notes play immediately.
+ */
+function keepAudioThreadAlive(): void {
+  if (keepAliveStarted) return
+  const ctx = Tone.getContext().rawContext as unknown as AudioContext
+  const osc = ctx.createOscillator()
+  const gain = ctx.createGain()
+  gain.gain.value = 0
+  osc.connect(gain)
+  gain.connect(ctx.destination)
+  osc.start()
+  keepAliveStarted = true
+}
+
+/** Set master output volume in dB. -Infinity = silent, 0 = unity. */
+export function setMasterVolumeDb(db: number): void {
+  if (!masterVolume) return
+  masterVolume.volume.value = db
+}
+
+/** Set master output volume from a linear 0..1 fraction (perceptual via gainToDb). */
+export function setMasterVolumeFraction(value: number): void {
+  if (!masterVolume) return
+  if (value <= 0) {
+    masterVolume.volume.value = -Infinity
+  } else {
+    masterVolume.volume.value = Tone.gainToDb(Math.min(1, value))
+  }
+}
+
 export async function ensureInstrument(id: InstrumentId): Promise<void> {
   await initAudio()
+  if (isSalamander(id)) {
+    return ensureSalamander()
+  }
   if (players.has(id)) return
   const existing = loadingPromises.get(id)
   if (existing) {
@@ -200,6 +291,30 @@ function activeKey(midi: number, instrument: InstrumentId): string {
 }
 
 export function noteOn(midi: number, velocity: number, instrument: InstrumentId): void {
+  if (isSalamander(instrument)) {
+    if (!salamanderReady || !salamanderSampler) {
+      ensureInstrument(instrument).catch(() => {})
+      return
+    }
+    salamanderSampler.triggerAttack(midiToNoteName(midi), undefined, velocity)
+    const key = activeKey(midi, instrument)
+    let list = activeNotes.get(key)
+    if (!list) {
+      list = []
+      activeNotes.set(key, list)
+    }
+    // Single shared release handle per key — Sampler releases all voices for
+    // that note at once, so one entry is enough.
+    if (!list.length) {
+      list.push({
+        stop: () => {
+          salamanderSampler?.triggerRelease(midiToNoteName(midi))
+        },
+      })
+    }
+    return
+  }
+
   const player = players.get(instrument)
   if (!player) {
     // Trigger lazy load; this note will be silent.
@@ -244,6 +359,8 @@ export function allOff(): void {
     }
   }
   activeNotes.clear()
+  // Defensive: also release any voices the Sampler is holding.
+  salamanderSampler?.releaseAll()
 }
 
 export interface AudioOutputDevice {
