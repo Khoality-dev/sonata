@@ -1,0 +1,61 @@
+{
+  "name": "my-piano-app",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "main": "electron/main.cjs",
+  "scripts": {
+    "dev:vite": "vite",
+    "dev:electron": "wait-on http://127.0.0.1:5173 && electron .",
+    "dev": "concurrently -k -n VITE,ELECTRON -c blue,magenta \"npm:dev:vite\" \"npm:dev:electron\"",
+    "dev:web": "vite",
+    "build:vite": "tsc && vite build",
+    "build": "npm run build:vite && electron-builder",
+    "build:dir": "npm run build:vite && electron-builder --dir",
+    "start": "electron .",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@tonejs/midi": "^2.0.28",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "tone": "^15.0.4"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@vitejs/plugin-react": "^4.3.3",
+    "concurrently": "^9.0.1",
+    "electron": "^33.0.2",
+    "electron-builder": "^25.1.8",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.10",
+    "wait-on": "^8.0.1"
+  },
+  "build": {
+    "appId": "com.user.mypianoapp",
+    "productName": "my-piano-app",
+    "asar": true,
+    "files": [
+      "dist/**",
+      "electron/**",
+      "package.json"
+    ],
+    "directories": {
+      "output": "release"
+    },
+    "win": {
+      "target": [
+        "nsis"
+      ]
+    },
+    "mac": {
+      "target": "dmg",
+      "category": "public.app-category.music"
+    },
+    "linux": {
+      "target": "AppImage",
+      "category": "Audio"
+    }
+  }
+}
