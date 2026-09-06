@@ -31,7 +31,16 @@ jobs:
         run: npm run build:vite
 
       - name: Package with electron-builder
-        run: npx electron-builder --publish never
+        shell: bash
+        # Retry: the Electron binary download from GitHub occasionally gets a
+        # connection reset mid-transfer on CI runners.
+        run: |
+          for attempt in 1 2 3; do
+            npx electron-builder --publish never && exit 0
+            echo "electron-builder failed (attempt $attempt), retrying in 15s..."
+            sleep 15
+          done
+          exit 1
         env:
           # No code-signing certs in CI; produce unsigned installers.
           CSC_IDENTITY_AUTO_DISCOVERY: 'false'
