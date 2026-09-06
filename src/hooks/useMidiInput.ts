@@ -55,6 +55,20 @@ export function useMidiInput(opts: MidiInputOptions): MidiInputApi {
         refresh()
         unsubDevices = mgr.onDevicesChanged(refresh)
         unsubOn = mgr.onNoteOn((midi, velocity) => {
+          // Fire audio FIRST — every other branch is latency-tolerant. If the
+          // engine is already up, call noteOn synchronously (no microtask
+          // defer); otherwise kick init and trigger when ready.
+          const inst = opts.liveInstrumentRef.current ?? DEFAULT_INSTRUMENT
+          heldInstrument.current.set(midi, inst)
+          if (audio.isAudioReady()) {
+            audio.noteOn(midi, velocity, inst)
+          } else {
+            audio.initAudio().then(() => audio.noteOn(midi, velocity, inst))
+          }
+
+          // Visual state + per-track color resolution (O(N) song scan) — the
+          // user can tolerate a frame of delay on a key highlight, but not on
+          // the audio.
           liveRef.current.add(midi)
           setLiveNotes(new Set(liveRef.current))
           const trackIdx = opts.resolveLiveNoteTrackRef.current(midi)
@@ -62,19 +76,18 @@ export function useMidiInput(opts: MidiInputOptions): MidiInputApi {
             liveTracksRef.current.set(midi, trackIdx)
             setLiveNoteTracks(new Map(liveTracksRef.current))
           }
-          const inst = opts.liveInstrumentRef.current ?? DEFAULT_INSTRUMENT
-          heldInstrument.current.set(midi, inst)
-          audio.initAudio().then(() => audio.noteOn(midi, velocity, inst))
         })
         unsubOff = mgr.onNoteOff((midi) => {
+          // Audio first, same reasoning as noteOn.
+          const inst = heldInstrument.current.get(midi) ?? opts.liveInstrumentRef.current ?? DEFAULT_INSTRUMENT
+          heldInstrument.current.delete(midi)
+          audio.noteOff(midi, inst)
+
           liveRef.current.delete(midi)
           setLiveNotes(new Set(liveRef.current))
           if (liveTracksRef.current.delete(midi)) {
             setLiveNoteTracks(new Map(liveTracksRef.current))
           }
-          const inst = heldInstrument.current.get(midi) ?? opts.liveInstrumentRef.current ?? DEFAULT_INSTRUMENT
-          heldInstrument.current.delete(midi)
-          audio.noteOff(midi, inst)
         })
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)

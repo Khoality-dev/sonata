@@ -282,8 +282,13 @@ export function preloadInstruments(ids: Iterable<InstrumentId>): void {
   }
 }
 
+const noteNameCache: string[] = new Array(128)
 function midiToNoteName(midi: number): string {
-  return Tone.Frequency(midi, 'midi').toNote()
+  const cached = noteNameCache[midi]
+  if (cached) return cached
+  const name = Tone.Frequency(midi, 'midi').toNote()
+  noteNameCache[midi] = name
+  return name
 }
 
 function activeKey(midi: number, instrument: InstrumentId): string {
@@ -296,7 +301,10 @@ export function noteOn(midi: number, velocity: number, instrument: InstrumentId)
       ensureInstrument(instrument).catch(() => {})
       return
     }
-    salamanderSampler.triggerAttack(midiToNoteName(midi), undefined, velocity)
+    // Pass an explicit immediate time. With no time arg, Tone schedules at
+    // `now()` = currentTime + lookAhead (default 100 ms), which adds a fixed
+    // audible delay to every live keypress. Tone.immediate() = currentTime.
+    salamanderSampler.triggerAttack(midiToNoteName(midi), Tone.immediate(), velocity)
     const key = activeKey(midi, instrument)
     let list = activeNotes.get(key)
     if (!list) {
@@ -308,7 +316,7 @@ export function noteOn(midi: number, velocity: number, instrument: InstrumentId)
     if (!list.length) {
       list.push({
         stop: () => {
-          salamanderSampler?.triggerRelease(midiToNoteName(midi))
+          salamanderSampler?.triggerRelease(midiToNoteName(midi), Tone.immediate())
         },
       })
     }
