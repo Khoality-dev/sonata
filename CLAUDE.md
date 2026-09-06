@@ -132,3 +132,7 @@ Two key-state sources combine on the keyboard:
 ## Screenshots
 
 `assets/` holds JPG screenshots of each scene (`01-load`, `02-setup`, `03-play`, `04-practice`), captured at 1400×900 via `npm run dev:web` + Playwright with `D:\Piano\River Flows In You.mid`. Re-capture after UI changes. Playwright MCP can only upload files inside the repo, so copy the `.mid` into the repo temporarily (e.g. `.playwright-mcp/`, git-ignored) and delete it after.
+
+## Releases (GitHub Actions)
+
+`.github/workflows/release.yml` builds installers on a Windows/macOS/Linux matrix (`npm ci` → `build:vite` → `electron-builder --publish never`) and uploads them as workflow artifacts. Pushing a `v*` tag (e.g. `git tag v0.1.0 && git push origin v0.1.0`) additionally creates a GitHub Release with the `.exe` / `.dmg` / `.AppImage` attached and auto-generated notes. Trigger it manually (`gh workflow run release.yml`) to test the build without cutting a release. Builds are unsigned (`CSC_IDENTITY_AUTO_DISCOVERY=false`). Bump `version` in `package.json` before tagging so the installer filename matches.
