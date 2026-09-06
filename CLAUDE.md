@@ -1,4 +1,4 @@
-# my-piano-app
+# Sonata
 
 A falling-notes MIDI piano player, packaged as a desktop app (Electron). Load a `.mid` file, watch falling notes, hear playback, and connect a real piano via Web MIDI to light up keys live.
 
@@ -20,7 +20,7 @@ npm run dev          # Vite + Electron concurrently (recommended)
 npm run dev:web      # browser-only mode at http://127.0.0.1:5173
 npm run start        # run Electron against last build
 npm run build        # produce installer in ./release (electron-builder)
-# install silently: & "release\my-piano-app Setup 0.1.0.exe" /S  -> %LOCALAPPDATA%\Programs\my-piano-app
+# install silently: & "release\Sonata Setup 0.1.0.exe" /S  -> %LOCALAPPDATA%\Programs\Sonata
 npm run build:dir    # unpacked build in ./release/win-unpacked (faster)
 ```
 

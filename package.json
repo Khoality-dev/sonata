@@ -1,5 +1,5 @@
 {
-  "name": "my-piano-app",
+  "name": "sonata",
   "private": true,
   "version": "0.1.0",
   "type": "module",
@@ -34,8 +34,8 @@
     "wait-on": "^8.0.1"
   },
   "build": {
-    "appId": "com.user.mypianoapp",
-    "productName": "my-piano-app",
+    "appId": "com.user.sonata",
+    "productName": "Sonata",
     "asar": true,
     "files": [
       "dist/**",

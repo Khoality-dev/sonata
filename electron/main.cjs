@@ -12,7 +12,7 @@ function createWindow() {
     minHeight: 520,
     backgroundColor: '#0b0d12',
     autoHideMenuBar: true,
-    title: 'my-piano-app',
+    title: 'Sonata',
     webPreferences: {
       contextIsolation: true,
       nodeIntegration: false,

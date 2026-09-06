@@ -257,7 +257,7 @@ export function App() {
   return (
     <div className="app">
       <header className="header">
-        <h1>my-piano-app</h1>
+        <h1>Sonata</h1>
         <span className="tagline">Falling-notes piano player</span>
         <div className="spacer" />
         <Breadcrumb
