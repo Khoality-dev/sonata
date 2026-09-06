@@ -5,3 +5,4 @@ release
 *.local
 .vite
 .DS_Store
+.playwright-mcp
